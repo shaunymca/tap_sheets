@@ -18,6 +18,7 @@ setup(name='tap-sheets',
           'jsonschema==2.6.0',
           'httplib2==0.9.2',
           'google-api-python-client==1.6.3',
+          'oauth2client',
           'nose'
       ],
       entry_points='''
