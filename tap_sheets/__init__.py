@@ -135,24 +135,19 @@ def tabsInfo(sheetsService, row):
         spreadsheetId=row['id']).execute()
         #spreadsheetId=row['id']).execute()
     for tab_id, tab in enumerate(tabs["sheets"]):
+        print(row['id'])
         entry = CatalogEntry(
-            row_count = tab["properties"]["gridProperties"]["rowCount"],
-            #database_name = row['id'],
-            table = tab["properties"]["title"].lower().replace(" ", ""),
+            tap_stream_id = row['name'].lower().replace(" ", "") + '-' + tab["properties"]["title"].lower().replace(" ",""),
             stream = tab["properties"]["title"].lower().replace(" ", ""),
-            tap_stream_id = row['name'].lower().replace(" ", "") + '-' + tab["properties"]["title"].lower().replace(" ", "")
+            database = row['name'].lower().replace(" ", "") + '&' + row['id'],
+            table = tab["properties"]["title"].lower().replace(" ", "") + '-' + str(tab_id),
         )
-        
+        print(entry)
         result.append(entry)
     return(result)
             
 def do_sync(properties):
-    """Shows basic usage of the Sheets API.
 
-    Creates a Sheets API service object and prints the names and majors of
-    students in a sample spreadsheet:
-    https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-    """
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
