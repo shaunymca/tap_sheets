@@ -97,6 +97,9 @@ def get_credentials():
     return credentials
 
 def do_discover():
+    discover_catalog().dump()
+    
+def discover_catalog():
     """ Gets sheet information for Docs present in account """
     buildSchema = []
     tempSchema = sheetsList(None)
@@ -107,6 +110,7 @@ def do_discover():
         nextPageToken = tempSchema.pop("nextPageToken")
         buildSchema.append(tempSchema["schema_data"])
     print(buildSchema)
+    return Catalog(buildSchema)
 
 def sheetsList(pageToken):
     nextPageToken = None
@@ -135,14 +139,13 @@ def tabsInfo(sheetsService, row):
         spreadsheetId=row['id']).execute()
         #spreadsheetId=row['id']).execute()
     for tab_id, tab in enumerate(tabs["sheets"]):
-        print(row['id'])
+        print(tab_id)
         entry = CatalogEntry(
             tap_stream_id = row['name'].lower().replace(" ", "") + '-' + tab["properties"]["title"].lower().replace(" ",""),
             stream = tab["properties"]["title"].lower().replace(" ", ""),
             database = row['name'].lower().replace(" ", "") + '&' + row['id'],
             table = tab["properties"]["title"].lower().replace(" ", "") + '-' + str(tab_id),
         )
-        print(entry)
         result.append(entry)
     return(result)
             
