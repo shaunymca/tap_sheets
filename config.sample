@@ -1,6 +1,5 @@
 {
-    "scopes" : ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
-    "client_secret_file" : "client_secret.json",
-    "application_name" : "Singer
-Sheets Tap"
+  "refresh_token": "",
+  "oauth_client_id": "",
+  "oauth_client_secret": ""
 }
