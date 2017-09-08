@@ -103,27 +103,31 @@ def tabsInfo(sheetsService, row):
         spreadsheetId=row['id']).execute()
         #spreadsheetId=row['id']).execute()
     for tab_id, tab in enumerate(tabs["sheets"]):
-        print(tab_id)
         entry = CatalogEntry(
             tap_stream_id = row['name'].lower().replace(" ", "") + '-' + tab["properties"]["title"].lower().replace(" ",""),
             stream = tab["properties"]["title"].lower().replace(" ", ""),
             database = row['name'].lower().replace(" ", "") + '&' + row['id'],
-            table = tab["properties"]["title"].lower().replace(" ", "") + '-' + str(tab_id),
+            table = tab["properties"]["title"].lower().replace(" ", "") + '&' + str(tab_id),
         )
         result.append(entry)
     return(result)
             
 def do_sync(properties):
-
+    for table in properties[0]["streams"]:
+        print(table)
+        get_data(table)
+        
+def get_data(table):
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
                     'version=v4')
     service = discovery.build('sheets', 'v4', http=http,
                               discoveryServiceUrl=discoveryUrl, cache_discovery=False)
-                              
-    spreadsheetId = properties[0]["streams"][0]["tap_stream_id"]
-    rangeName = 'A1:D'
+    print(table)                          
+    spreadsheetId = table["database_name"].split("&",1)[1]
+    print(spreadsheetId)
+    rangeName = 'A1:ZZZ'
 
     
     result = service.spreadsheets().values().get(
@@ -141,13 +145,14 @@ def do_sync(properties):
                     record[header_row[column_id]] = row[column_id]
                 json.append(record)
     print(json)
+    
+def sync_data()
 
 def main():
     args = utils.parse_args(
         ["oauth_client_id",
          "oauth_client_secret",
          "refresh_token"])
-    print(args)
     CONFIG.update(args.config)
     STATE = {}
 
