@@ -29,6 +29,8 @@ import httplib2
 from apiclient import discovery
 from oauth2client import client
 
+import tap_sheets.conversion as conversion
+
 LOGGER = singer.get_logger()
     
 import time
@@ -96,7 +98,7 @@ def sheetsList(pageToken):
     
     return(result)
     
-@RateLimited(2)
+@RateLimited(1)
 def tabsInfo(sheetsService, row):
     result = []
     tabs = sheetsService.spreadsheets().get(
@@ -119,18 +121,28 @@ def tabsInfo(sheetsService, row):
             
 def do_sync(properties):
     for table in properties[0]["streams"]:
-        print(table)
-        get_data(table)
+        new_properties = table["tap_stream_id"].split("?")
+        json = get_data(new_properties[0])
+        data_schema = conversion.generate_schema(json)
+        print(data_schema) 
+        table_name = new_properties[1] + "_" + new_properties[3]
+        for record in json:
+            
+            singer.write_schema(
+                table_name,
+                data_schema,
+                key_properties=[]
+                )
+            singer.write_records(table_name, record)
+
         
-def get_data(table):
+def get_data(spreadsheetId):
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
                     'version=v4')
     service = discovery.build('sheets', 'v4', http=http,
                               discoveryServiceUrl=discoveryUrl, cache_discovery=False)
-    print(table)                          
-    spreadsheetId = table["database_name"].split("&",1)[1]
     print(spreadsheetId)
     rangeName = 'A1:ZZZ'
 
@@ -149,10 +161,11 @@ def get_data(table):
                 for column_id, value in enumerate(row):
                     record[header_row[column_id]] = row[column_id]
                 json.append(record)
-    print(json)
+    return(json)
     
 def sync_table(properties):
     print("ok")
+    
     
 
 def main():

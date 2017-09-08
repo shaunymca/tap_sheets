@@ -1,7 +1,8 @@
 import dateutil
 import pytz
 
-from tap_s3_csv.logger import LOGGER as logger
+import singer
+LOGGER = singer.get_logger()
 
 
 def convert_row(row, schema):
