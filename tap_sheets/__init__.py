@@ -96,15 +96,20 @@ def sheetsList(pageToken):
     
     return(result)
     
-@RateLimited(1)
+@RateLimited(2)
 def tabsInfo(sheetsService, row):
     result = []
     tabs = sheetsService.spreadsheets().get(
         spreadsheetId=row['id']).execute()
         #spreadsheetId=row['id']).execute()
     for tab_id, tab in enumerate(tabs["sheets"]):
+        sheet_id = row['id']
+        sheet_name = row['name'].lower().replace(" ", "")
+        tab_id = str(tab_id)
+        tab_name = tab["properties"]["title"].lower().replace(" ", "")
+        print(sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name)
         entry = CatalogEntry(
-            tap_stream_id = row['name'].lower().replace(" ", "") + '-' + tab["properties"]["title"].lower().replace(" ",""),
+            tap_stream_id = sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name,
             stream = tab["properties"]["title"].lower().replace(" ", ""),
             database = row['name'].lower().replace(" ", "") + '&' + row['id'],
             table = tab["properties"]["title"].lower().replace(" ", "") + '&' + str(tab_id),
@@ -145,6 +150,10 @@ def get_data(table):
                     record[header_row[column_id]] = row[column_id]
                 json.append(record)
     print(json)
+    
+def sync_table(properties):
+    print("ok")
+    
 
 def main():
     args = utils.parse_args(
