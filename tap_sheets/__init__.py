@@ -145,8 +145,6 @@ def get_data(table):
                     record[header_row[column_id]] = row[column_id]
                 json.append(record)
     print(json)
-    
-def sync_data()
 
 def main():
     args = utils.parse_args(
