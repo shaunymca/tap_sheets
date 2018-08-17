@@ -1,5 +1,5 @@
 {
   "refresh_token": "",
-  "oauth_client_id": "",
-  "oauth_client_secret": ""
+  "client_id": "",
+  "client_secret": ""
 }
