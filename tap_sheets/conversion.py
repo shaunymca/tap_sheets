@@ -7,12 +7,11 @@ LOGGER = singer.get_logger()
 
 def convert_row(row, schema):
     to_return = {}
-
     for key, value in row.items():
-        field_schema = schema['properties'][key]
+        field_schema = schema[key]
         datatype = field_schema.get('_conversion_type', 'string')
 
-        logger.debug('Converting {} value {} to {}'.format(
+        LOGGER.debug('Converting {} value {} to {}'.format(
             key, value, datatype))
         converted, _ = convert(value, datatype)
 

@@ -1,74 +1,70 @@
 #!/usr/bin/env python3
 
-import argparse
-import functools
-import io
-import os
+
 import sys
 import json
 import logging
-import collections
-import threading
-import http.client
-import urllib
-import pkg_resources
+import random
 import time
-
+from ratelimiter import RateLimiter
 from jsonschema import validate
 import singer
 import singer.messages
 import singer.metrics as metrics
 from singer import utils
-from singer import (transform,
-                    UNIX_MILLISECONDS_INTEGER_DATETIME_PARSING,
+from singer import (UNIX_MILLISECONDS_INTEGER_DATETIME_PARSING,
                     Transformer, _transform_datetime)
 from singer.catalog import Catalog, CatalogEntry
 
 import httplib2
 
-from apiclient import discovery
-from oauth2client import client
+from googleapiclient import discovery
+from googleapiclient.http import set_user_agent
+from googleapiclient.errors import HttpError
+from oauth2client import client, GOOGLE_TOKEN_URI, GOOGLE_REVOKE_URI
+from oauth2client import tools
+from oauth2client.file import Storage
 
 import tap_sheets.conversion as conversion
 
 LOGGER = singer.get_logger()
+
+REQUIRED_CONFIG_KEYS = [
+    "client_id",
+    "client_secret",
+    "refresh_token"
+]
+
+rate_limiter = RateLimiter(max_calls=100, period=100)
+
+def get_service(config, name, version):
+    credentials = client.OAuth2Credentials(
+        None,
+        config.get('client_id'),
+        config.get('client_secret'),
+        config.get('refresh_token'),
+        None,
+        GOOGLE_TOKEN_URI,
+        None,
+        revoke_uri=GOOGLE_REVOKE_URI)
+    http = credentials.authorize(httplib2.Http())
+    user_agent = config.get('user_agent')
+    if user_agent:
+        http = set_user_agent(http, user_agent)
+    return discovery.build(name, version, http=http, cache_discovery=False)
+
+def do_discover(driveService, sheetsService, config):
+    LOGGER.info("Starting discover")
+    catalog = discover_catalog(driveService, sheetsService, config)
+    print(catalog)
+    json.dump(catalog, sys.stdout, indent=2)
+    LOGGER.info('Finished Discover')
     
-import time
+def discover_catalog(driveService, sheetsService, config):
+    #Gets sheet information for Docs present in account
 
-def RateLimited(maxPerSecond):
-    minInterval = 1.0 / float(maxPerSecond)
-    def decorate(func):
-        lastTimeCalled = [0.0]
-        def rateLimitedFunction(*args,**kargs):
-            elapsed = time.clock() - lastTimeCalled[0]
-            leftToWait = minInterval - elapsed
-            if leftToWait>0:
-                time.sleep(leftToWait)
-            ret = func(*args,**kargs)
-            lastTimeCalled[0] = time.clock()
-            return ret
-        return rateLimitedFunction
-    return decorate
-
-
-# If modifying these scopes, delete your previously saved credentials
-# at ~/.credentials/sheets.googleapis.com-python-quickstart.json
-CONFIG = {}
-
-def get_credentials():
-    """
-    Returns:
-        Credentials, the obtained credential.
-    """
-    return client.OAuth2Credentials(None, CONFIG['oauth_client_id'], CONFIG['oauth_client_secret'], CONFIG['refresh_token'], None, "https://www.googleapis.com/oauth2/v4/token", "stitch")
-
-def do_discover():
-    discover_catalog().dump()
-    
-def discover_catalog():
-    """ Gets sheet information for Docs present in account """
     buildSchema = []
-    tempSchema = sheetsList(None)
+    tempSchema = sheetsList(None, driveService, sheetsService, config)
     nextPageToken = tempSchema.pop("nextPageToken")
     buildSchema = tempSchema["schema_data"]
     while nextPageToken != None:
@@ -76,17 +72,11 @@ def discover_catalog():
         nextPageToken = tempSchema.pop("nextPageToken")
         buildSchema.append(tempSchema["schema_data"])
     print(buildSchema)
-    return Catalog(buildSchema)
+    return Catalog(buildSchema).to_dict()
 
-def sheetsList(pageToken):
+def sheetsList(pageToken, driveService, sheetsService, config):
     nextPageToken = None
-    credentials = get_credentials()
-    http = credentials.authorize(httplib2.Http())
-    # drive docs - https://developers.google.com/resources/api-libraries/documentation/drive/v3/python/latest/drive_v3.files.html#list
-    # sheets docs - https://developers.google.com/resources/api-libraries/documentation/sheets/v4/python/latest/sheets_v4.spreadsheets.values.html#get
-    driveService = discovery.build('drive', 'v3', http=http, cache_discovery=False)
-    sheetsService = discovery.build('sheets', 'v4', http=http, cache_discovery=False)
-    result = driveService.files().list(orderBy=None, q='mimeType=\'application/vnd.google-apps.spreadsheet\'', includeTeamDriveItems=None, pageSize=1000, pageToken=pageToken, corpora=None, supportsTeamDrives=None, spaces=None, teamDriveId=None, corpus=None).execute()
+    result = driveService.files().list(orderBy="modifiedTime desc", q='mimeType=\'application/vnd.google-apps.spreadsheet\'', includeTeamDriveItems=None, pageSize=1000, pageToken=pageToken, corpora=None, supportsTeamDrives=None, spaces=None, teamDriveId=None, corpus=None).execute()
     nextPageToken = result.get('nextPageToken')
     files = result.get('files', [])
     tabList = []
@@ -98,18 +88,20 @@ def sheetsList(pageToken):
     
     return(result)
     
-@RateLimited(1)
 def tabsInfo(sheetsService, row):
     result = []
-    tabs = sheetsService.spreadsheets().get(
-        spreadsheetId=row['id']).execute()
-        #spreadsheetId=row['id']).execute()
+    with rate_limiter:
+        tabs = makeRequestWithExponentialBackoff(sheetsService, row)
+    LOGGER.info("starting tab loop")
+    #LOGGER.info(tabs)
     for tab_id, tab in enumerate(tabs["sheets"]):
+        #LOGGER.info("creating CatalogEntry for")
+        #LOGGER.info(tab_id)
         sheet_id = row['id']
         sheet_name = row['name'].lower().replace(" ", "")
         tab_id = str(tab_id)
         tab_name = tab["properties"]["title"].lower().replace(" ", "")
-        print(sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name)
+        #print(sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name)
         entry = CatalogEntry(
             tap_stream_id = sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name,
             stream = tab["properties"]["title"].lower().replace(" ", ""),
@@ -117,37 +109,58 @@ def tabsInfo(sheetsService, row):
             table = tab["properties"]["title"].lower().replace(" ", "") + '&' + str(tab_id),
         )
         result.append(entry)
+        LOGGER.info(entry)
+        LOGGER.info("ending this tab")
     return(result)
-            
-def do_sync(properties):
-    for table in properties[0]["streams"]:
-        new_properties = table["tap_stream_id"].split("?")
-        json = get_data(new_properties[0])
+     
+def makeRequestWithExponentialBackoff(sheetsService, row):
+  """Wrapper to request Google Sheets data with exponential backoff.
+
+  Returns:
+    The API response from the makeRequest method.
+  """
+  for n in range(0, 5):
+    try:
+        LOGGER.info('trying')
+        sheet = sheetsService.spreadsheets().get(
+        spreadsheetId=row['id']).execute()
+        LOGGER.info(sheet)
+        LOGGER.info('succedded')
+        return sheet
+
+    except HttpError as error:
+        if error.resp.reason in ['Too Many Requests', 'userRateLimitExceeded', 'quotaExceeded',
+                               'internalServerError', 'backendError']:
+            time.sleep((2 ** n) + random.random())
+        else:
+            LOGGER.info(error.resp.reason)
+            break
+
+  print("There has been an error, the request never succeeded.")
+
+def do_sync(sheetsService, config, catalog):
+    for stream in catalog["streams"]:
+        new_properties = stream["tap_stream_id"].split("?")
+        json = get_data(sheetsService, new_properties[0])
         data_schema = conversion.generate_schema(json)
-        print(data_schema) 
         table_name = new_properties[1] + "_" + new_properties[3]
+        #LOGGER.info(data_schema)
+        write_schema = [table_name,
+                {'properties':data_schema},
+                '']
+        singer.write_schema(
+                table_name,
+                {'properties':data_schema},
+                ''
+                )
         for record in json:
             
-            singer.write_schema(
-                table_name,
-                data_schema,
-                key_properties=[]
-                )
-            singer.write_records(table_name, record)
+            to_write = conversion.convert_row(record, data_schema)
+            singer.write_record(table_name, to_write)
 
-        
-def get_data(spreadsheetId):
-    credentials = get_credentials()
-    http = credentials.authorize(httplib2.Http())
-    discoveryUrl = ('https://sheets.googleapis.com/$discovery/rest?'
-                    'version=v4')
-    service = discovery.build('sheets', 'v4', http=http,
-                              discoveryServiceUrl=discoveryUrl, cache_discovery=False)
-    print(spreadsheetId)
+def get_data(sheetsService, spreadsheetId):
     rangeName = 'A1:ZZZ'
-
-    
-    result = service.spreadsheets().values().get(
+    result = sheetsService.spreadsheets().values().get(
         spreadsheetId=spreadsheetId, range=rangeName, dateTimeRenderOption='FORMATTED_STRING', majorDimension='ROWS').execute()
     values = result.get('values', [])
     header_row = values[0]
@@ -162,30 +175,13 @@ def get_data(spreadsheetId):
                     record[header_row[column_id]] = row[column_id]
                 json.append(record)
     return(json)
-    
-def sync_table(properties):
-    print("ok")
-    
-    
 
 def main():
-    args = utils.parse_args(
-        ["oauth_client_id",
-         "oauth_client_secret",
-         "refresh_token"])
-    CONFIG.update(args.config)
-    STATE = {}
-
-    if args.state:
-        STATE.update(args.state)
-
-    if args.discover:
-        do_discover()
-    elif args.properties:
-        do_sync(args.properties)
-    else:
-        LOGGER.info("No properties were selected")
-
-if __name__ == '__main__':
-    main()
-
+    parsed_args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
+    config = parsed_args.config
+    driveService = get_service(config, 'drive', 'v3')
+    sheetsService = get_service(config, 'sheets', 'v4')
+    if parsed_args.discover:
+        do_discover(driveService, sheetsService, config)
+    elif parsed_args.properties:
+        do_sync(sheetsService, config, parsed_args.properties)
