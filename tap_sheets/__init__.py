@@ -56,7 +56,6 @@ def get_service(config, name, version):
 def do_discover(driveService, sheetsService, config):
     LOGGER.info("Starting discover")
     catalog = discover_catalog(driveService, sheetsService, config)
-    print(catalog)
     json.dump(catalog, sys.stdout, indent=2)
     LOGGER.info('Finished Discover')
     
@@ -92,16 +91,11 @@ def tabsInfo(sheetsService, row):
     result = []
     with rate_limiter:
         tabs = makeRequestWithExponentialBackoff(sheetsService, row)
-    LOGGER.info("starting tab loop")
-    #LOGGER.info(tabs)
     for tab_id, tab in enumerate(tabs["sheets"]):
-        #LOGGER.info("creating CatalogEntry for")
-        #LOGGER.info(tab_id)
         sheet_id = row['id']
         sheet_name = row['name'].lower().replace(" ", "")
         tab_id = str(tab_id)
         tab_name = tab["properties"]["title"].lower().replace(" ", "")
-        #print(sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name)
         entry = CatalogEntry(
             tap_stream_id = sheet_id + "?" + sheet_name + "?" + tab_id + "?" + tab_name + "?" + sheet_name + "_" + tab_name,
             stream = tab["properties"]["title"].lower().replace(" ", ""),
@@ -109,8 +103,6 @@ def tabsInfo(sheetsService, row):
             table = tab["properties"]["title"].lower().replace(" ", "") + '&' + str(tab_id),
         )
         result.append(entry)
-        LOGGER.info(entry)
-        LOGGER.info("ending this tab")
     return(result)
      
 def makeRequestWithExponentialBackoff(sheetsService, row):
@@ -121,11 +113,8 @@ def makeRequestWithExponentialBackoff(sheetsService, row):
   """
   for n in range(0, 5):
     try:
-        LOGGER.info('trying')
         sheet = sheetsService.spreadsheets().get(
         spreadsheetId=row['id']).execute()
-        LOGGER.info(sheet)
-        LOGGER.info('succedded')
         return sheet
 
     except HttpError as error:
@@ -144,14 +133,13 @@ def do_sync(sheetsService, config, catalog):
         json = get_data(sheetsService, new_properties[0])
         data_schema = conversion.generate_schema(json)
         table_name = new_properties[1] + "_" + new_properties[3]
-        #LOGGER.info(data_schema)
         write_schema = [table_name,
                 {'properties':data_schema},
                 '']
         singer.write_schema(
                 table_name,
-                {'properties':data_schema},
-                ''
+                data_schema,
+                ['CID', 'Date']
                 )
         for record in json:
             

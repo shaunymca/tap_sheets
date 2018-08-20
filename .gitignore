@@ -101,5 +101,6 @@ config.json
 .autoenv.zsh
 properties.json
 client_secret.json
+catalog.json
 *~
 env-vars*
